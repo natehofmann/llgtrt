@@ -318,13 +318,12 @@ impl Tensor {
     //TODO: Need to account for multiple datatypes
     pub fn from_tlc_tensor(tlc_tensor: &ffi::TlcTensor) -> Self {
         let shape = tlc_tensor.shape.to_vec();
-        let data_ptr = tlc_tensor.data_ptr as *const u8;
-        let num_elements: usize = shape.iter().product();
-        let num_bytes = num_elements * tlc_tensor.data_type.size_in_bytes();
-        let data: Vec<u8> = unsafe {
-            std::slice::from_raw_parts(data_ptr, num_bytes).to_vec()
-        };
 
+        let data_ptr = tlc_tensor.data_ptr as *const u8;
+        let num_elements: usize = i64::try_into(shape.iter().product::<i64>()).expect("all elements are positive so this should work");
+        let data: Vec<u8> = unsafe {
+            std::slice::from_raw_parts(data_ptr, num_elements).to_vec()
+        };
         Tensor {
             size: shape,
             data,
