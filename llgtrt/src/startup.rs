@@ -208,9 +208,10 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
     set_field_opt!(event_buffer_max_size);
     p.kv_cache_host_memory_bytes = runtime_config.kv_cache_host_memory_megabytes * 1024 * 1024;
 
-    if draft_exec_config.is_some() {
+    if let Some(exec_config) = draft_exec_config {
         // make sure this is set to if using draft model
         p.enable_kv_cache_reuse = true;
+        log::info!("Initializing draft executor with config: {:?}", exec_config);
     }
 
     log::info!("Initializing executor with config: {:?}", exec_config);

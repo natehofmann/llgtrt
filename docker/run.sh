@@ -37,7 +37,7 @@ cd $(dirname $0)/..
     --volume "$ENGINE":/engine \
     ${lora_volume} \
     --publish $PORT:$PORT \
-    llgtrt/llgtrt:latest \
+    main:latest \
     /usr/local/bin/launch-llgtrt.sh \
         /engine \
         --port $PORT \

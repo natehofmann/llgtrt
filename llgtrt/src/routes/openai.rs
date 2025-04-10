@@ -481,8 +481,10 @@ pub struct TokenLogProb {
 impl TokenLogProb {
     pub fn new(trie: &TokTrie, token_id: TokenId, logprob: f32) -> Self {
         let bytes = trie.decode(&[token_id]);
+        let token = String::from_utf8_lossy(&bytes).to_string();
+        log::debug!("TokenLogProb {:} {:?}", token_id, token);
         TokenLogProb {
-            token: String::from_utf8_lossy(&bytes).to_string(),
+            token,
             logprob,
             bytes,
         }
