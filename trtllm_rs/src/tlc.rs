@@ -66,6 +66,8 @@ impl Default for ffi::TlcPromptParams {
     }
 }
 
+unsafe impl Sync for ffi::TlcPromptParams {}
+
 impl Default for RequestParams {
     fn default() -> Self {
         ffi::TlcRequestParams {
@@ -91,6 +93,12 @@ impl Default for RequestParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct ReqId(ffi::TlcReqId);
+
+impl ReqId {
+    pub fn new(n: u64) -> Self {
+        ReqId(n)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
@@ -278,6 +286,8 @@ impl Default for ffi::TlcTensor {
         }
     }
 }
+
+unsafe impl Sync for ffi::TlcTensor {}
 
 impl Default for ffi::TlcLoraParams {
     fn default() -> Self {

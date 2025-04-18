@@ -183,7 +183,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
     let p = &mut exec_config.trt_params;
 
     // TODO keep trt params same for now
-    let mut draft_exec_config = cli_config.draft_engine.clone().map(|engine_path|{
+    let draft_exec_config = cli_config.draft_engine.clone().map(|engine_path|{
         let mut exec = ExecutorInit {
             engine_path: engine_path,
             logits_callback: None,
@@ -339,9 +339,9 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         log::info!("Warming up executor");
         let mut warmup_tokens =
             state.tokenize_with_bos("The ultimate answer to life, the universe and everything is");
-        log::debug!("Warmup tokens: {:?}", warmup_tokens);
-        let (_, mut rx) = AsyncExecutor::lock().add_request(
-            &RequestInit {
+        log::info!("Warmup tokens: {:?}", warmup_tokens);
+        let (_, mut rx) = AsyncExecutor::lock().add_full_request(
+            RequestInit {
                 tokens: warmup_tokens.clone(),
                 params: RequestParams {
                     max_new_tokens: 10,
@@ -357,6 +357,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         )?;
         while let Some(r) = rx.recv().await {
             warmup_tokens.extend_from_slice(&r.response.tokens);
+            break
         }
         log::info!(
             "Warmup: {}",
