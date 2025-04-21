@@ -687,8 +687,9 @@ impl AsyncExecutor {
                     let mut target_tokens = Vec::new();
                     while let Some(mut result) = target_rx.recv().await {
                         if result.response.tokens.is_empty() && result.response.is_req_final {
-                            log::debug!("{} - target req {} got 0 requests skipping", client_req_id, target_req_id);
-                            break 'spec_dec; // TODO check if this is correct stopping condition, if we get nothing just stop spec dec.
+                            log::debug!("{} - target req {} got 0 requests ending spec dec loop", client_req_id, target_req_id);
+                            result.response.finish_reason = Some(trtllm_rs::FinishReason::EosToken);
+                            break 'spec_dec; // TODO check if this is correct stopping condition for EOS, if we get nothing just stop spec dec.
                         }
                         log::debug!("{} - target req {} token {} {:?}", client_req_id, target_req_id, result.response.tokens.len(), result.response.tokens);
                         log::debug!("{} - target req {} marked as {:?}", client_req_id, target_req_id, result.response.is_req_final);
