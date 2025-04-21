@@ -421,6 +421,7 @@ impl Executor {
 
         let mut req_id = 0;
         let err = unsafe { ffi::tlc_enqueue_request(self.inner, &arg, &mut req_id) };
+        log::debug!("enqueued request with id - {}", req_id);
         map_err(err, ReqId(req_id), "tlc_enqueue_request")
     }
 

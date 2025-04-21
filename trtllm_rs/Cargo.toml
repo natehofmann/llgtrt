@@ -8,6 +8,7 @@ anyhow = "1.0.89"
 libc = "0.2.158"
 serde = { version = "1.0.210", features = ["derive"] }
 strum = { version = "0.27.0", features = ["derive"] }
+log = "0.4.22"
 
 [build-dependencies]
 bindgen = "*"

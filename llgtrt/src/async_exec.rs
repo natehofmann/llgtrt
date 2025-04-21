@@ -605,16 +605,17 @@ impl AsyncExecutor {
                 let start_prompt_len = req_init.tokens.len();
                 let max_num_tokens = req_init.params.max_new_tokens.try_into().unwrap();
                 let n_draft_tokens = AsyncExecutor::lock().n_draft_tokens();
-                loop {
+                'spec_dec: loop {
                     // TODO first draft call
                     log::debug!("{} - starting draft exec", client_req_id);
                     req_init.params.max_new_tokens = n_draft_tokens as u32;  // TODO set min?
                     req_init.params.min_tokens = n_draft_tokens as u32;  // TODO set min?
                     req_init.params.streaming = false; // Set to false for draft so that we can grab logits in one go.
+                    req_init.draft_params = None; // Clear draft params
                     let (draft_tx, mut draft_rx) = tokio::sync::mpsc::unbounded_channel();
                     let draft_req_id = if let mut exec = AsyncExecutor::lock() {
                         let draft_req_id = exec.draft_executor.as_mut().unwrap().enqueue_request(&req_init, None).unwrap();
-                        log::debug!("{} - got chunk target request {}", client_req_id, draft_req_id);
+                        log::debug!("{} - got chunk draft request {}", client_req_id, draft_req_id);
                         // TODO can we hold exec longer here
                         exec.draft_req_data.insert(
                             client_req_id,
@@ -687,7 +688,7 @@ impl AsyncExecutor {
                     while let Some(mut result) = target_rx.recv().await {
                         if result.response.tokens.is_empty() && result.response.is_req_final {
                             log::debug!("{} - target req {} got 0 requests skipping", client_req_id, target_req_id);
-                            continue;
+                            break 'spec_dec; // TODO check if this is correct stopping condition, if we get nothing just stop spec dec.
                         }
                         log::debug!("{} - target req {} token {} {:?}", client_req_id, target_req_id, result.response.tokens.len(), result.response.tokens);
                         log::debug!("{} - target req {} marked as {:?}", client_req_id, target_req_id, result.response.is_req_final);
