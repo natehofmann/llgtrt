@@ -689,6 +689,9 @@ impl AsyncExecutor {
                         if result.response.tokens.is_empty() && result.response.is_req_final {
                             log::debug!("{} - target req {} got 0 requests ending spec dec loop", client_req_id, target_req_id);
                             result.response.finish_reason = Some(trtllm_rs::FinishReason::EosToken);
+                            if let Err(e) = main_tx.send(result) {
+                                log::warn!("{} - spec dec chunk connection dropped with err {:?}", client_req_id, e);
+                            }
                             break 'spec_dec; // TODO check if this is correct stopping condition for EOS, if we get nothing just stop spec dec.
                         }
                         log::debug!("{} - target req {} token {} {:?}", client_req_id, target_req_id, result.response.tokens.len(), result.response.tokens);
