@@ -176,8 +176,8 @@ pub struct CliConfig {
 
     // Device configuration for draft/target models. For our use case, will set device IDs for both draft/target models to the same
     // value to maximize KV cache reuse.
-    #[arg(long)]
-    pub draft_target_model_config: Option<Vec<u32>>,
+    #[arg(long, value_delimiter = ',')]
+    pub draft_target_model_config: Option<Vec<i32>>,
 
     // Whether to use generation logits or manual token comparison for speculative decoding.
     #[arg(long)]

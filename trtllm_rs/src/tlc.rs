@@ -344,7 +344,7 @@ impl Tensor {
 }
 
 impl Executor {
-    pub fn new(init: ExecutorInit, is_dtm: bool, draft_target_model_config: Option<Vec<u32>>, use_logits: bool) -> Result<(Executor, Responder)> {
+    pub fn new(init: ExecutorInit, is_dtm: bool, draft_target_model_config: Option<Vec<i32>>, use_logits: bool) -> Result<(Executor, Responder)> {
         let cstr = CString::new(init.engine_path).unwrap();
         let params = ffi::TlcInitParams {
             engine_path: cstr.as_ptr(),

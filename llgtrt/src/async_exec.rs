@@ -412,7 +412,7 @@ impl AsyncExecutor {
         draft_executor_init: Option<ExecutorInit>,
         n_draft_tokens: u32,
         draft_token_acc_rate: Option<f32>,
-        draft_target_model_config: Option<Vec<u32>>,
+        draft_target_model_config: Option<Vec<i32>>,
         use_logits: bool,
     ) -> Result<(Self, TokEnv, ChatBuilder)> {
         // executor_init.logits_callback = Some(logits_processor);
@@ -790,6 +790,7 @@ impl AsyncExecutor {
 
                     let mut target_tokens = Vec::new();
                     while let Some(mut result) = target_rx.recv().await {
+                        // Check for EOS
                         if result.response.tokens.is_empty() && result.response.is_req_final {
                             log::debug!("{} - target req {} got 0 requests ending spec dec loop", client_req_id, target_req_id);
                             result.response.finish_reason = Some(trtllm_rs::FinishReason::EosToken);
@@ -802,31 +803,31 @@ impl AsyncExecutor {
                         log::debug!("{} - target req {} marked as {:?}", client_req_id, target_req_id, result.response.is_req_final);
                         let mut done = false;
                         target_tokens.append(&mut result.response.tokens.clone());
-
+                        
+                        // TODO: Check stop words and other stop conditions?
                         if result.response.is_req_final {
                             // set as final for this set of chunks
                             // but main_rx is still waiting for max_num_tokens
-                            if (req_init.tokens.len() + target_tokens.len()) < max_num_tokens {
-                                log::debug!("{} - target req {} is marked as done but don't have full amount of tokens yet {}/{}", client_req_id, target_req_id, req_init.tokens.len() + target_tokens.len(), max_num_tokens);
+                            // Check for length
+                            let completion_tokens: usize = req_init.tokens.len() - start_prompt_len;
+                            if (completion_tokens + target_tokens.len()) < max_num_tokens {
+                                log::debug!("{} - target req {} is marked as done but don't have full amount of tokens yet {}/{}", client_req_id, target_req_id, completion_tokens + target_tokens.len(), max_num_tokens);
                                 result.response.is_req_final = false;
                                 result.response.finish_reason = None;
                             } else {
-                                // TODO account for eos
+                                log::debug!("{} - done gathering target req {}", client_req_id, target_req_id);
                                 result.response.finish_reason = Some(trtllm_rs::FinishReason::Length);
+                                if let Err(e) = main_tx.send(result) {
+                                    log::warn!("{} - spec dec chunk connection dropped with err {:?}", client_req_id, e);
+                                }
+                                break 'spec_dec;
                             }
-                            done = true;
                         }
 
-                        // send to main req_info
+                        // Send chunk to main receiver
                         if let Err(e) = main_tx.send(result) {
                             log::warn!("{} - spec dec chunk connection dropped with err {:?}", client_req_id, e);
                         }
-
-                        // if done {
-                        //     log::debug!("{} - done gathering target req {}", client_req_id, target_req_id);
-                        //     AsyncExecutor::lock().cancel_request(target_req_id); // draft request should be canceled in responder loop
-                        //     break
-                        // }
                     }
 
                     req_init.tokens.append(&mut target_tokens);

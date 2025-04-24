@@ -276,7 +276,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         log::info!("Draft token acceptance rate {:?}", acc_rate);
     }
 
-    let draft_target_model_config: Option<Vec<u32>> = cli_config.draft_target_model_config.clone();
+    let draft_target_model_config: Option<Vec<i32>> = cli_config.draft_target_model_config.clone();
     // TODO: Ideally want to check this with device ID/TP size, or maybe trtllm handles this.
     if let Some(ref draft_target_model_config) = draft_target_model_config {
         if draft_target_model_config.len() == 0 {

@@ -96,7 +96,7 @@ COPY . .
 # link stub, so that it builds without nvidia-runtime
 RUN cd /usr/local/cuda/lib64 && ln -s stubs/libnvidia-ml.so libnvidia-ml.so.1
 RUN bash -c 'env'
-RUN apt-get update && apt-get install -y libopenmpi-dev && \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y libopenmpi-dev && \
     mpic++ --version
 
 RUN ./scripts/build.sh --clean --cxx11abi $USE_CXX11_ABI

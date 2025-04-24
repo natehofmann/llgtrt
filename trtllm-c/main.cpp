@@ -78,7 +78,7 @@ static std::optional<float> nan_opt(float value)
     return std::isnan(value) ? std::nullopt : std::optional<float>(value);
 }
 
-TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res, int isDTM, const uint32_t* dtmConfigPtr, size_t dtmConfigLen, int use_logits)
+TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res, int isDTM, const int32_t* dtmConfigPtr, size_t dtmConfigLen, int use_logits)
 {
     TRY
     {
@@ -142,9 +142,21 @@ TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res, int isDTM, co
             if (dtmConfigPtr && dtmConfigLen > 0) {
                 deviceIdVec.assign(dtmConfigPtr, dtmConfigPtr + dtmConfigLen);
             }
+            
+            // Check device Ids
+            for (auto id: deviceIdVec) {
+                TLLM_LOG_DEBUG("Device Id: %d", id);
+            }
+            
             parallelConfig.setDeviceIds(deviceIdVec);
             // TODO: Need to set participant IDs?
             executorConfig.setParallelConfig(parallelConfig);
+
+            bool const fastLogits = (use_logits == 1);
+            if (fastLogits) {
+                auto specDecConfig = tle::SpeculativeDecodingConfig(fastLogits);
+                executorConfig.setSpecDecConfig(specDecConfig);
+            }
         }
 
         executorConfig.setKvCacheConfig(kvConfig);
