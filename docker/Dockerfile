@@ -27,6 +27,10 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH \
     RUST_VERSION=1.83.0
 
+# Set this for spec decoding to spawn executorWorkers
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.12/dist-packages/tensorrt_llm/libs \
+    EXECUTOR_WORKER_PATH=/usr/local/lib/python3.12/dist-packages/tensorrt_llm/bin/executorWorker
+
 RUN curl https://sh.rustup.rs -sSf | sh -s -- \
      -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION
 RUN rustup component add rustfmt
@@ -92,6 +96,9 @@ COPY . .
 # link stub, so that it builds without nvidia-runtime
 RUN cd /usr/local/cuda/lib64 && ln -s stubs/libnvidia-ml.so libnvidia-ml.so.1
 RUN bash -c 'env'
+RUN apt-get update && apt-get install -y libopenmpi-dev && \
+    mpic++ --version
+
 RUN ./scripts/build.sh --clean --cxx11abi $USE_CXX11_ABI
 # remove stub just in case
 RUN rm /usr/local/cuda/lib64/libnvidia-ml.so.1

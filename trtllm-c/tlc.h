@@ -230,7 +230,7 @@ extern "C"
     typedef struct TlcExecutor TlcExecutor;
 
     void tlc_default_init_params(TlcInitParams* params);
-    TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res);
+    TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res, int isDTM, const uint32_t* dtmConfigPtr, size_t dtmConfigLen, int use_logits);
     bool tlc_can_enqueue_request(TlcExecutor* ctx);
     void tlc_shutdown(TlcExecutor* ctx);
     TlcStatus tlc_enqueue_request(TlcExecutor* ctx, TlcRequest const* request, TlcReqId* res);

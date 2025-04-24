@@ -9,6 +9,7 @@
 #include "tensorrt_llm/common/logger.h"
 #include "tensorrt_llm/executor/executor.h"
 #include "tensorrt_llm/plugins/api/tllmPlugin.h"
+#include "tensorrt_llm/common/mpiUtils.h"
 
 #include "tensorrt_llm/runtime/iTensor.h"
 #include <NvInferRuntime.h>
@@ -77,7 +78,7 @@ static std::optional<float> nan_opt(float value)
     return std::isnan(value) ? std::nullopt : std::optional<float>(value);
 }
 
-TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res)
+TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res, int isDTM, const uint32_t* dtmConfigPtr, size_t dtmConfigLen, int use_logits)
 {
     TRY
     {
@@ -116,6 +117,35 @@ TlcStatus tlc_init(TlcInitParams const* params, TlcExecutor** res)
                                               : tle::CapacitySchedulerPolicy::kMAX_UTILIZATION;
         auto chunking = tle::ContextChunkingPolicy::kFIRST_COME_FIRST_SERVED; // default?
         auto schedulerConfig = tle::SchedulerConfig(policy, chunking, dynamicBatchConfig);
+
+        if (isDTM == 1) {
+            tensorrt_llm::mpi::initialize(tensorrt_llm::mpi::MpiThreadSupport::THREAD_MULTIPLE);
+            int const myRank = tensorrt_llm::mpi::MpiComm::world().getRank();
+            bool const isOrchestrator = (myRank == 0);
+
+            // TODO: Figure out a way to dynamically set this if needed.
+            const char* envVar = std::getenv("EXECUTOR_WORKER_PATH");
+            if (envVar == nullptr) {
+                throw std::runtime_error("EXECUTOR_WORKER_PATH needs to be set for spec decoding.");
+            }
+            std::string workerExecutablePath = envVar;
+            TLLM_LOG_DEBUG("Worker executable path is: %s", workerExecutablePath.c_str());
+            
+            TLLM_LOG_DEBUG("Current rank is: %d", myRank);
+
+            auto orchestratorConfig
+                = tle::OrchestratorConfig(isOrchestrator, workerExecutablePath /* workerExecutablePath */ /* spawnPrcesses */);
+            auto parallelConfig = tle::ParallelConfig(tle::CommunicationType::kMPI, tle::CommunicationMode::kORCHESTRATOR,
+                std::nullopt, std::nullopt, orchestratorConfig);
+
+            std::vector<int32_t> deviceIdVec;
+            if (dtmConfigPtr && dtmConfigLen > 0) {
+                deviceIdVec.assign(dtmConfigPtr, dtmConfigPtr + dtmConfigLen);
+            }
+            parallelConfig.setDeviceIds(deviceIdVec);
+            // TODO: Need to set participant IDs?
+            executorConfig.setParallelConfig(parallelConfig);
+        }
 
         executorConfig.setKvCacheConfig(kvConfig);
         executorConfig.setSchedulerConfig(schedulerConfig);

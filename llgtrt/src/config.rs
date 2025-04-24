@@ -174,6 +174,15 @@ pub struct CliConfig {
     #[arg(long)]
     pub draft_token_acc_rate: Option<f32>,
 
+    // Device configuration for draft/target models. For our use case, will set device IDs for both draft/target models to the same
+    // value to maximize KV cache reuse.
+    #[arg(long)]
+    pub draft_target_model_config: Option<Vec<u32>>,
+
+    // Whether to use generation logits or manual token comparison for speculative decoding.
+    #[arg(long)]
+    pub use_logits: bool,
+
     /// Debug output
     #[arg(long, short = 'd')]
     pub debug: bool,

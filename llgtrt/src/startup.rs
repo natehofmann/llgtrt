@@ -10,7 +10,7 @@ use axum::Router;
 use llguidance::earley::SlicedBiasComputer;
 use llguidance::ParserFactory;
 use toktrie::InferenceCapabilities;
-use trtllm_rs::{ClientReqId, ExecutorInit, RequestInit, RequestParams};
+use trtllm_rs::{ClientReqId, ExecutorInit, RequestInit, RequestParams, TlcEngineParams};
 
 use crate::async_exec::AsyncExecutor;
 use crate::config::{config_info, CliConfig, LlgTrtConfig};
@@ -183,7 +183,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
     let p = &mut exec_config.trt_params;
 
     // TODO keep trt params same for now
-    let draft_exec_config = cli_config.draft_engine.clone().map(|engine_path|{
+    let mut draft_exec_config = cli_config.draft_engine.clone().map(|engine_path|{
         let mut exec = ExecutorInit {
             engine_path: engine_path,
             logits_callback: None,
@@ -195,12 +195,23 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         exec
     });
 
+    let mut d: Option<&mut TlcEngineParams> = None;
+    if let Some(config) = &mut draft_exec_config {
+        d = Some(&mut config.trt_params);
+    }
+
     macro_rules! set_field {
         ($fld:ident) => {
             p.$fld = runtime_config
                 .$fld
                 .try_into()
                 .expect(concat!("Invalid value for ", stringify!($fld)));
+            if let Some(ref mut d_ref) = d {
+                d_ref.$fld = runtime_config
+                    .$fld
+                    .try_into()
+                    .expect(concat!("Invalid value for ", stringify!($fld)));
+            }
         };
     }
 
@@ -210,6 +221,13 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
                 p.$fld = v
                     .try_into()
                     .expect(concat!("Invalid value for ", stringify!($fld)));
+            }
+            if let Some(ref mut d_ref) = d {
+                if let Some(v) = runtime_config.$fld {
+                    d_ref.$fld = v
+                        .try_into()
+                        .expect(concat!("Invalid value for ", stringify!($fld)));
+                }
             }
         };
     }
@@ -257,7 +275,19 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         }
         log::info!("Draft token acceptance rate {:?}", acc_rate);
     }
-    let (executor, tok_env, chat_builder) = AsyncExecutor::new(&cli_config, &config, exec_config, draft_exec_config, n_draft_tokens as u32, draft_token_acc_rate)?;
+
+    let draft_target_model_config: Option<Vec<u32>> = cli_config.draft_target_model_config.clone();
+    // TODO: Ideally want to check this with device ID/TP size, or maybe trtllm handles this.
+    if let Some(ref draft_target_model_config) = draft_target_model_config {
+        if draft_target_model_config.len() == 0 {
+            panic!("draft_target_model_config cannot be empty")
+        }
+        log::info!("Draft target model config {:?}", draft_target_model_config);
+    }
+
+    let use_logits: bool = cli_config.use_logits;
+
+    let (executor, tok_env, chat_builder) = AsyncExecutor::new(&cli_config, &config, exec_config, draft_exec_config, n_draft_tokens as u32, draft_token_acc_rate, draft_target_model_config, use_logits)?;
 
     // we only get here on rank 0
 

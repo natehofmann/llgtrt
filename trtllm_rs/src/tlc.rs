@@ -344,7 +344,7 @@ impl Tensor {
 }
 
 impl Executor {
-    pub fn new(init: ExecutorInit) -> Result<(Executor, Responder)> {
+    pub fn new(init: ExecutorInit, is_dtm: bool, draft_target_model_config: Option<Vec<u32>>, use_logits: bool) -> Result<(Executor, Responder)> {
         let cstr = CString::new(init.engine_path).unwrap();
         let params = ffi::TlcInitParams {
             engine_path: cstr.as_ptr(),
@@ -352,7 +352,16 @@ impl Executor {
             engine_params: init.trt_params,
         };
         let mut inner = std::ptr::null_mut();
-        let err = unsafe { ffi::tlc_init(&params, &mut inner) };
+
+        // Handle spec dec params
+        let is_dtm_c = if is_dtm { 1 } else { 0 };
+        let use_logits_c = if use_logits { 1 } else { 0 };
+        let (dtm_config_ptr, dtm_config_len) = match &draft_target_model_config {
+            Some(vec) => (vec.as_ptr(), vec.len()),
+            None => (std::ptr::null(), 0),
+        };
+
+        let err = unsafe { ffi::tlc_init(&params, &mut inner, is_dtm_c, dtm_config_ptr, dtm_config_len, use_logits_c) };
         let r = (Executor { inner }, Responder { inner });
         map_err(err, r, "tlc_init")
     }

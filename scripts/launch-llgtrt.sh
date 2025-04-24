@@ -52,7 +52,7 @@ if [ -n "$DRAFT_ENGINE" ]; then
 fi
 
 if [ $TP -gt 1 ] ; then
-    MPI="mpirun -n $TP --allow-run-as-root"
+    MPI="mpirun -n 1 --allow-run-as-root"
     cmd="$MPI $cmd"
 fi
 

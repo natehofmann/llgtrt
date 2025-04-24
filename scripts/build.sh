@@ -33,6 +33,7 @@ else
     git submodule update --init
 fi
 
+set -ex
 mkdir -p trtllm-c/build
 cd trtllm-c/build
 cmake -DUSE_CXX11_ABI=$USE_CXX11_ABI ..

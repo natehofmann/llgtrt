@@ -18,6 +18,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 # Define project name
 project(trtllm-c)
 
+# Add MPI support
+find_package(MPI REQUIRED)
+include_directories(${MPI_INCLUDE_PATH})  
+
 # Compile options
 set(CMAKE_CXX_FLAGS "-Wall -pthread -lstdc++ -DENABLE_MULTI_DEVICE=1")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
@@ -35,3 +39,5 @@ add_definitions("-DENABLE_FP8")
 include_directories(${TRTLLM_INCLUDE_DIR} ${TRTLLM_INCLUDE_COMMON_DIR} ${CUDAToolkit_INCLUDE_DIRS})
 
 add_library(trtllm_c STATIC main.cpp logits.cpp mask_logits.cu)
+
+target_link_libraries(trtllm_c ${MPI_CXX_LIBRARIES})
