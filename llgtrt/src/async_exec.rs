@@ -710,6 +710,12 @@ impl AsyncExecutor {
                 let start_prompt_len = req_init.tokens.len();
                 let max_num_tokens = req_init.params.max_new_tokens.try_into().unwrap();
                 let n_draft_tokens = AsyncExecutor::lock().n_draft_tokens();
+
+                // Metrics
+                let mut total_accepted = 0;
+                let mut total_draft_tokens = 0;
+                let mut n_iterations = 0;
+
                 'spec_dec: loop {
                     // TODO first draft call
                     log::debug!("{} - starting draft exec", client_req_id);
@@ -717,6 +723,7 @@ impl AsyncExecutor {
                     req_init.params.min_tokens = n_draft_tokens as u32;  // TODO set min?
                     req_init.params.streaming = false; // Set to false for draft so that we can grab logits in one go.
                     req_init.draft_params = None; // Clear draft params
+                    n_iterations += 1;
                     let (draft_tx, mut draft_rx) = tokio::sync::mpsc::unbounded_channel();
                     let draft_req_id = if let mut exec = AsyncExecutor::lock() {
                         let draft_req_id = exec.draft_executor.as_mut().unwrap().enqueue_request(&req_init, None).unwrap();
@@ -821,6 +828,11 @@ impl AsyncExecutor {
                             .zip(&target_tokens)
                             .take_while(|(&d, &t)| d == t)
                             .count();
+                        
+                        // Running average
+                        total_accepted += accepted;
+                        total_draft_tokens += draft_tokens.len();
+                        let average_acc_rate = total_accepted as f64 / total_draft_tokens as f64 * 100.0;
 
                         if !target_tokens.is_empty() {
                             draft_acc_rate = accepted as f64 / draft_tokens.len() as f64 * 100.0;
@@ -828,6 +840,7 @@ impl AsyncExecutor {
                         
                         log::debug!("{} - target req {} target accepted {}/{} draft tokens%", client_req_id, target_req_id, accepted, draft_tokens.len());
                         log::debug!("{} - target req {} draft acc rate {:.2}%", client_req_id, target_req_id, draft_acc_rate);
+                        log::debug!("Spec Dec Iteration {} - Average acc rate {:.2}%", n_iterations, average_acc_rate);
                         
                         // TODO: Check stop words and other stop conditions?
                         if result.response.is_req_final {
@@ -855,6 +868,7 @@ impl AsyncExecutor {
                         }
                     }
 
+                    // TODO: Check if we need to do this, seems like we never hit this.
                     req_init.tokens.append(&mut target_tokens);
                     log::debug!("{} - {} has {} out of {} tokens, started with {}", client_req_id, target_req_id, req_init.tokens.len(), max_num_tokens + start_prompt_len, start_prompt_len);
                     if req_init.tokens.len() >= (start_prompt_len + max_num_tokens) {

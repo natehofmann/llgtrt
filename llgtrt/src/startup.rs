@@ -273,6 +273,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         p.enable_kv_cache_reuse = true;
         p.kv_cache_free_gpu_mem_fraction = runtime_config.kv_cache_free_gpu_mem_fraction;
         log::info!("Target kv_cache_free_gpu_mem_fraction: {:?}", p.kv_cache_free_gpu_mem_fraction);
+        log::info!("Initializing draft executor with config: {:?}", draft_exec_config);
     }
 
     log::info!("Initializing executor with config: {:?}", exec_config);
