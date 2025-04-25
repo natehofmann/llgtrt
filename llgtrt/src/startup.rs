@@ -13,7 +13,7 @@ use toktrie::InferenceCapabilities;
 use trtllm_rs::{ClientReqId, ExecutorInit, RequestInit, RequestParams, TlcEngineParams};
 
 use crate::async_exec::AsyncExecutor;
-use crate::config::{config_info, CliConfig, LlgTrtConfig};
+use crate::config::{config_info, CliConfig, LlgTrtConfig, TrtLlmRuntimeConfig};
 use crate::jsonutil::json5_to_string;
 use crate::lora::LoraCache;
 use crate::state::AppState;
@@ -161,6 +161,8 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         }
     }
 
+    let mut draft_runtime_config = TrtLlmRuntimeConfig::default();
+
     if cli_config.print_config {
         log::info!("Skipping runtime config load");
     } else {
@@ -168,6 +170,15 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
             .runtime_config
             .clone()
             .unwrap_or_else(|| format!("{}/runtime.json", cli_config.engine));
+        
+        let mut draft_runtime_config_path: Option<String> = None;
+        if let p = cli_config.draft_engine.clone() {
+            draft_runtime_config_path = Some(cli_config
+                .runtime_config
+                .clone()
+                .unwrap_or_else(|| format!("{}/runtime.json", p.unwrap_or_else(|| String::from("")))));
+        }
+
         log::info!("Checking for separate runtime config in {:?}", runtime_config);
         if std::fs::exists(&runtime_config)? {
             config.runtime = serde_json::from_reader(std::fs::File::open(runtime_config)?)
@@ -175,6 +186,17 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
             log::info!("Loaded runtime config from {:?}", config.runtime);
         } else {
             log::info!("Using default runtime config {:?}", config.runtime);
+        }
+
+        if let Some(draft_runtime_config_path) = draft_runtime_config_path {
+            log::info!("Checking for separate draft runtime config in {:?}", draft_runtime_config_path);
+            if std::fs::exists(&draft_runtime_config_path)? {
+                draft_runtime_config = serde_json::from_reader(std::fs::File::open(draft_runtime_config_path)?)
+                    .map_err(|e| anyhow!("error loading draft runtime.json: {}", e))?;
+                log::info!("Loaded draft runtime config from {:?}", draft_runtime_config);
+            } else {
+                log::info!("Using default draft runtime config {:?}", draft_runtime_config);
+            }
         }
     }
 
@@ -190,7 +212,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
             trt_params: Default::default(),
         };
         exec.trt_params.enable_kv_cache_reuse = true;
-        exec.trt_params.kv_cache_free_gpu_mem_fraction = runtime_config.kv_cache_free_gpu_mem_fraction;
+        exec.trt_params.kv_cache_free_gpu_mem_fraction = draft_runtime_config.kv_cache_free_gpu_mem_fraction;
         log::info!("Draft kv_cache_free_gpu_mem_fraction: {:?}", exec.trt_params.kv_cache_free_gpu_mem_fraction);
         exec
     });
@@ -207,7 +229,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
                 .try_into()
                 .expect(concat!("Invalid value for ", stringify!($fld)));
             if let Some(ref mut d_ref) = d {
-                d_ref.$fld = runtime_config
+                d_ref.$fld = draft_runtime_config
                     .$fld
                     .try_into()
                     .expect(concat!("Invalid value for ", stringify!($fld)));
@@ -223,7 +245,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
                     .expect(concat!("Invalid value for ", stringify!($fld)));
             }
             if let Some(ref mut d_ref) = d {
-                if let Some(v) = runtime_config.$fld {
+                if let Some(v) = draft_runtime_config.$fld {
                     d_ref.$fld = v
                         .try_into()
                         .expect(concat!("Invalid value for ", stringify!($fld)));

@@ -412,20 +412,22 @@ TlcStatus tlc_enqueue_request(TlcExecutor* ctx, TlcRequest const* request, TlcRe
         if (request->draft_params.draft_tokens)
         {
             auto const& dp = request->draft_params;
-            // tle::Tensor logitsTensor;
-            // logitsTensor = _tlc_to_tle_tensor(dp.logits_tensor);
+            tle::Tensor logitsTensor;
             assert(dp.num_tokens > 0);
             auto acc_rate = (dp.acc_rate < 0.0) ? std::nullopt : std::optional<float>{dp.acc_rate};
-            // std::ostringstream oss;
-            // oss << "Setting external config with draft logits shape: [";
-            // for (size_t i = 0; i < logitsTensor.getShape().size(); ++i)
-            // {
-            //     oss << logitsTensor.getShape()[i];
-            //     if (i + 1 < logitsTensor.getShape().size())
-            //         oss << ", ";
-            // }
-            // oss << "]";
-            // TLLM_LOG_INFO("%s", oss.str().c_str());
+            if (request->draft_params.logits_tensor.data_ptr) {
+                logitsTensor = _tlc_to_tle_tensor(dp.logits_tensor);
+                std::ostringstream oss;
+                oss << "Setting external config with draft logits shape: [";
+                for (size_t i = 0; i < logitsTensor.getShape().size(); ++i)
+                {
+                    oss << logitsTensor.getShape()[i];
+                    if (i + 1 < logitsTensor.getShape().size())
+                        oss << ", ";
+                }
+                oss << "]";
+                TLLM_LOG_INFO("%s", oss.str().c_str());
+            }
             tle::VecTokens draftTokens(dp.draft_tokens, dp.draft_tokens + dp.num_tokens);
             tle::ExternalDraftTokensConfig draftTokensConfig(
                 std::move(draftTokens), std::nullopt, acc_rate, std::nullopt); //TODO: Figure out logits
@@ -514,6 +516,7 @@ TlcStatus tlc_await_responses(
                 }
                 else if (result.generationLogits.has_value())
                 {
+                    TLLM_LOG_INFO("Using generation logits");
                     auto generationLogits = result.generationLogits.value();
                     auto logitsShape = generationLogits.getShape();
 
