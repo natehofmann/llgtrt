@@ -387,7 +387,7 @@ impl AsyncExecutor {
     pub fn cancel_draft_request(&mut self, req_id: ReqId) -> Result<()> {
         // TODO
         self.drop_draft_request_data(req_id);
-        self.draft_executor.cancel_request(req_id)
+        self.draft_executor.as_mut().unwrap().cancel_request(req_id)
     }
 
     pub fn has_draft_model(&self) -> bool {
@@ -445,6 +445,8 @@ impl AsyncExecutor {
             draft_executor,
             req_data: HashMap::new(),
             req_to_client: HashMap::new(),
+            draft_req_to_client: HashMap::new(),
+            draft_req_data: HashMap::new(),
             n_vocab,
             max_batch_size,
             n_draft_tokens,
@@ -457,9 +459,9 @@ impl AsyncExecutor {
                     .await_responses(std::time::Duration::from_millis(1))
                     .unwrap();
 
-                let draft_resps = if let Some(d) = draft_responder {
+                let draft_resps = if let Some(ref mut d) = draft_responder {
                     d.await_responses(std::time::Duration::from_millis(1))
-                    .unwrap();
+                    .unwrap()
                 } else {
                     Vec::new()
                 };
@@ -498,7 +500,7 @@ impl AsyncExecutor {
                         } else {
                             log::warn!("Response for unknown draft request: {:?}", req_id);
                             log::debug!("Tokens for unknown draft request {:?}: {:?}", req_id, resp.tokens);
-                            let _ = exec.executor.cancel_draft_request(req_id);
+                            let _ = exec.draft_executor.as_mut().unwrap().cancel_request(req_id);
                         }
                     }
                 }
