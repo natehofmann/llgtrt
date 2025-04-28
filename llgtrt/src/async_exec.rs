@@ -480,105 +480,6 @@ impl AsyncExecutor {
                     continue;
                 }
 
-                // for resp in draft_resps {
-                //     let (client_req_id, tx, logs, final_llg, is_req_final) = {
-                //         let mut exec = AsyncExecutor::lock();
-                //         let req_id = resp.req_id;
-                //         match exec.draft_req_to_client.get(&req_id).copied() {
-                //             Some(client_req_id) => {
-                //                 let rd = exec.draft_req_data.get_mut(&client_req_id).unwrap();
-                //                 let idx = resp.sequence_idx as usize;
-                //                 let logs = std::mem::take(&mut rd.logs);
-                //                 let final_llg = if rd.llgs.len() > 0 && resp.finish_reason.is_some() {
-                //                     std::mem::take(&mut rd.llgs[idx])
-                //                 } else {
-                //                     None
-                //                 };
-                //                 let tx = rd.tx.clone();
-                //                 (Some(client_req_id), Some(tx), logs, final_llg, resp.is_req_final)
-                //             }
-                //             None => {
-                //                 log::warn!("Response for unknown draft request: {:?}", req_id);
-                //                 log::debug!("Tokens for unknown draft request {:?}: {:?}", req_id, resp.tokens);
-                //                 let _ = exec.cancel_draft_request(req_id);
-                //                 (None, None, String::new(), None, false)
-                //             }
-                //         }
-                //     };
-            
-                //     if let (Some(client_req_id), Some(tx)) = (client_req_id, tx) {
-                //         log::debug!(
-                //             "{} {} - got draft response chunk with tokens {:?}",
-                //             client_req_id,
-                //             resp.req_id,
-                //             resp.tokens
-                //         );
-                //         let req_id = resp.req_id; // Clone req_id before moving resp
-                //         let step = StepResults {
-                //             response: resp,
-                //             logs,
-                //             final_llg,
-                //         };
-
-                //         if tx.send(step).is_err() {
-                //             log::warn!("connection dropped; req={}", req_id);
-                //             let _ = AsyncExecutor::lock().cancel_draft_request(req_id);
-                //         } else if is_req_final {
-                //             let _ = AsyncExecutor::lock().cancel_draft_request(req_id);
-                //         }
-                //     }
-                // }
-            
-                // for resp in resps {
-                //     let (client_req_id, tx, logs, final_llg, is_req_final) = {
-                //         let mut exec = AsyncExecutor::lock();
-                //         let req_id = resp.req_id;
-                //         match exec.req_to_client.get(&req_id).copied() {
-                //             Some(client_req_id) => {
-                //                 let rd = exec.req_data.get_mut(&client_req_id).unwrap();
-                //                 let idx = resp.sequence_idx as usize;
-                //                 let logs = std::mem::take(&mut rd.logs);
-                //                 let final_llg = if rd.llgs.len() > 0 && resp.finish_reason.is_some() {
-                //                     std::mem::take(&mut rd.llgs[idx])
-                //                 } else {
-                //                     None
-                //                 };
-                //                 let tx = rd.tx.clone();
-                //                 (Some(client_req_id), Some(tx), logs, final_llg, resp.is_req_final)
-                //             }
-                //             None => {
-                //                 log::warn!("Response for unknown request: {:?}", req_id);
-                //                 log::debug!("Tokens for unknown request {:?}: {:?}", req_id, resp.tokens);
-                //                 let _ = exec.cancel_request(req_id);
-                //                 (None, None, String::new(), None, false)
-                //             }
-                //         }
-                //     };
-            
-                //     if let (Some(client_req_id), Some(tx)) = (client_req_id, tx) {
-                //         log::debug!(
-                //             "{} {} - got response chunk with tokens {:?}",
-                //             client_req_id,
-                //             resp.req_id,
-                //             resp.tokens
-                //         );
-
-                //         let req_id = resp.req_id; // Clone req_id before moving resp
-                //         let step = StepResults {
-                //             response: resp,
-                //             logs,
-                //             final_llg,
-                //         };
-            
-                //         if tx.send(step).is_err() {
-                //             log::warn!("connection dropped; req={}", req_id);
-                //             let _ = AsyncExecutor::lock().cancel_request(req_id);
-                //         } else if is_req_final {
-                //             let _ = AsyncExecutor::lock().cancel_request(req_id);
-                //         }
-                //     }
-                // }
-
                 let mut exec = AsyncExecutor::lock();
                 if !draft_resps.is_empty() {
                     for resp in draft_resps {
@@ -594,6 +495,7 @@ impl AsyncExecutor {
                                 logs: std::mem::take(&mut rd.logs),
                                 final_llg: None,
                             };
+            
                             if rd.llgs.len() > 0 && r.response.finish_reason.is_some() {
                                 r.final_llg = std::mem::take(&mut rd.llgs[idx]);
                             }
@@ -828,7 +730,7 @@ impl AsyncExecutor {
                             .zip(&target_tokens)
                             .take_while(|(&d, &t)| d == t)
                             .count();
-                        
+
                         // Running average
                         total_accepted += accepted;
                         total_draft_tokens += draft_tokens.len();
@@ -837,11 +739,11 @@ impl AsyncExecutor {
                         if !target_tokens.is_empty() {
                             draft_acc_rate = accepted as f64 / draft_tokens.len() as f64 * 100.0;
                         }
-                        
+
                         log::debug!("{} - target req {} target accepted {}/{} draft tokens%", client_req_id, target_req_id, accepted, draft_tokens.len());
                         log::debug!("{} - target req {} draft acc rate {:.2}%", client_req_id, target_req_id, draft_acc_rate);
                         log::debug!("Spec Dec Iteration {} - Average acc rate {:.2}%", n_iterations, average_acc_rate);
-                        
+
                         // TODO: Check stop words and other stop conditions?
                         if result.response.is_req_final {
                             // set as final for this set of chunks
