@@ -448,6 +448,8 @@ impl AsyncExecutor {
             draft_executor,
             req_data: HashMap::new(),
             req_to_client: HashMap::new(),
+            draft_req_to_client: HashMap::new(),
+            draft_req_data: HashMap::new(),
             n_vocab,
             max_batch_size,
             n_draft_tokens,
@@ -501,7 +503,7 @@ impl AsyncExecutor {
                         } else {
                             log::warn!("Response for unknown draft request: {:?}", req_id);
                             log::debug!("Tokens for unknown draft request {:?}: {:?}", req_id, resp.tokens);
-                            let _ = exec.executor.cancel_draft_request(req_id);
+                            let _ = exec.cancel_draft_request(req_id);
                         }
                     }
                 }
