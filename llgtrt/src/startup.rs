@@ -170,7 +170,7 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
             .runtime_config
             .clone()
             .unwrap_or_else(|| format!("{}/runtime.json", cli_config.engine));
-        
+
         let mut draft_runtime_config_path: Option<String> = None;
         if let p = cli_config.draft_engine.clone() {
             draft_runtime_config_path = Some(cli_config
@@ -410,7 +410,6 @@ pub async fn run_server(mut cli_config: CliConfig) -> anyhow::Result<()> {
         )?;
         while let Some(r) = rx.recv().await {
             warmup_tokens.extend_from_slice(&r.response.tokens);
-            break
         }
         log::info!(
             "Warmup: {}",

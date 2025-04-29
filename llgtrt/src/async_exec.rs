@@ -87,10 +87,9 @@ pub struct AsyncExecutor {
     req_data: HashMap<ClientReqId, ReqData>,
     draft_req_to_client: HashMap<ReqId, ClientReqId>,
     draft_req_data: HashMap<ClientReqId, ReqData>,
-    client_to_init: HashMap<ClientReqId, RequestInit>,
+    client_to_init: HashMap<ClientReqId, SpecDecReqInit>,
     n_draft_tokens: u32,  // TODO prob better location for this, esp if dynamically setting between calls
-    draft_token_acc_rate: Option<f32>,
-    acc_rate_tracker: AcceptanceRateTracker,
+    draft_token_acc_rate: Option<f32>
 }
 
 static mut GLOBAL_ALLOCATOR: *const MaskAllocator = ptr::null();
@@ -186,6 +185,13 @@ impl PendingSeq {
     }
 }
 
+#[derive(Debug, Clone)]
+struct SpecDecReqInit {
+    req_init: RequestInit,
+    max_num_tokens: usize,
+    start_prompt_len: usize,
+}
+
 struct AcceptanceRateTracker {
     rates: HashMap<ClientReqId, (usize, f32)>
 }
@@ -198,11 +204,11 @@ impl AcceptanceRateTracker {
     }
 
     fn add(&mut self, client_req_id: ClientReqId, draft_tokens: Vec<u32>, target_tokens: Vec<u32>) {
-        let cur_rate = (draft_tokens.len() as f32) - ((target_tokens.len() - 1) as f32) / (draft_tokens.len() as f32);
+        let cur_rate = ((target_tokens.len() - 1) as f32) / (draft_tokens.len() as f32);
         let (count, total) = self.rates.entry(client_req_id).or_insert((0, 0.0));
         *count += 1;
-        *total += rate;
-        log::debug!("{} - iter {}, draft tokens {}, target tokens {}, cur acc rate {}, running acc rate {}", client_req_id, count, draft_tokens, target_tokens, rate, cur_rate / count as f32);
+        *total += cur_rate;
+        log::debug!("{} - iter {}, draft tokens {:?}, target tokens {:?}, cur acc rate {}, running acc rate {}", client_req_id, count, draft_tokens, target_tokens, cur_rate, *total / *count as f32);
     }
 }
 
@@ -384,10 +390,12 @@ impl AsyncExecutor {
     }
 
     fn drop_request_data(&mut self, req_id: ReqId) {
+        // TODO don't want to drop the full client
         log::debug!("removing {}", req_id);
         if let Some(client_req_id) = self.req_to_client.remove(&req_id) {
             log::debug!("removing {} {}", req_id, client_req_id);
             let _ = self.req_data.remove(&client_req_id);
+            let _ = self.client_to_init.remove(&client_req_id);
         }
         log::debug!("done removing {}", req_id)
     }
@@ -483,11 +491,13 @@ impl AsyncExecutor {
             max_batch_size,
             n_draft_tokens,
             draft_token_acc_rate,
-            acc_rate_tracker: AcceptanceRateTracker::new(),
         };
 
         rayon::spawn(
-            move || loop {
+            move ||
+            {
+            let mut acc_rate_tracker = AcceptanceRateTracker::new();
+            loop {
                 let resps = responder
                     .await_responses(std::time::Duration::from_millis(1))
                     .unwrap();
@@ -509,7 +519,7 @@ impl AsyncExecutor {
                         let req_id = resp.req_id;
                         if let Some(client_req_id) = exec.draft_req_to_client.get(&req_id) {
                             let client_req_id = *client_req_id;
-                            let mut init = exec.client_to_init.get_mut(&client_req_id).unwrap();
+                            let mut sd_init = exec.client_to_init.get(&client_req_id).unwrap().clone();  // TODO can we not clone
                             //let rd = exec.draft_req_data.get_mut(&client_req_id).unwrap();
                             let is_req_final = resp.is_req_final;
                             let idx = resp.sequence_idx as usize;
@@ -523,26 +533,21 @@ impl AsyncExecutor {
                                 //     r.final_llg = std::mem::take(&mut rd.llgs[idx]);
                             // }
 
-                            if init.draft_params.is_none() {
-                                init.draft_params = Some(DraftParams {
-                                    draft_tokens: Vec::new(),
-                                    logits_tensor: None, // TODO fill me out
-                                    acc_rate: None // TODO set
-                                });
-                            }
-
                             log::debug!("{} {} - got draft response chunk with tokens {:?}", client_req_id, req_id, resp.tokens);
-                            req_init.draft_params.unwrap().draft_tokens.append(&mut resp.tokens);
+                            // TODO should get all tokens in one chunk
+                            sd_init.req_init.draft_params = Some(DraftParams {
+                                draft_tokens: resp.tokens.clone(),
+                                logits_tensor: None, // TODO fill me out
+                                acc_rate: None // TODO set
+                            });
 
-                            // enqueue to target executor
                             if is_req_final {
+                                log::debug!("{} {} - got all draft response chunks enqueueing target request", client_req_id, req_id);
+                                // enqueue to target executor
+                                exec.enqueue_request(sd_init);
+
                                 // no more data coming from here
                                 let _ = exec.cancel_draft_request(req_id);
-                                init.params.max_new_tokens = n_draft_tokens + 1;
-                                init.params.min_tokens = 1;
-                                init.params.streaming = false;
-                                let target_req_id = exec.executor.add_request(&init, None).unwrap();
-                                exec.req_to_client(target_req_id, client_req_id);
                             }
 
                             // if rd.tx.send(r).is_err() {
@@ -565,35 +570,37 @@ impl AsyncExecutor {
                         let req_id = resp.req_id;
                         if let Some(client_req_id) = exec.req_to_client.get(&req_id) {
                             let client_req_id = *client_req_id;
+                            let mut sd_init = exec.client_to_init.get(&client_req_id).unwrap().clone();
                             let rd = exec.req_data.get_mut(&client_req_id).unwrap();
                             let is_req_final = resp.is_req_final;
+                            let tokens = resp.tokens.clone();
                             let idx = resp.sequence_idx as usize;
-                            log::debug!("{} {} - got response chunk with tokens {:?}", client_req_id, req_id, resp.tokens);
+                            log::debug!("{} {} - got target response chunk with tokens {:?}", client_req_id, req_id, tokens);
                             let mut r = StepResults {
                                 response: resp,
                                 logs: std::mem::take(&mut rd.logs),
                                 final_llg: None,
                             };
+
                             if rd.llgs.len() > 0 && r.response.finish_reason.is_some() {
                                 r.final_llg = std::mem::take(&mut rd.llgs[idx]);
                             }
 
-                            let mut init = exec.client_to_init.get_mut(&client_req_id).unwrap();
-                            req_init.tokens.append(&mut r.response.tokens.clone());
+                            sd_init.req_init.tokens.append(&mut tokens.clone());
 
-                            let completion_tokens: usize = init.tokens.len() - start_prompt_len; // TODO handle 
-                            let request_not_done = if r.response.tokens.is_empty() && is_req_final {
-                                log::debug!("{} - target req {} got 0 requests ending spec dec loop", client_req_id, target_req_id);
+                            let completion_tokens: usize = sd_init.req_init.tokens.len() - sd_init.start_prompt_len; // TODO handle
+                            let request_not_done = if tokens.is_empty() && is_req_final {
+                                log::debug!("{} - target req {} got 0 requests ending spec dec loop", client_req_id, req_id);
                                 r.response.finish_reason = Some(trtllm_rs::FinishReason::EosToken);
                                 false
-                            } else if (completion_tokens + target_tokens.len()) < max_num_tokens {
-                                log::debug!("{} - target req {} is marked as done but don't have full amount of tokens yet {}/{}", client_req_id, target_req_id, completion_tokens + target_tokens.len(), max_num_tokens);
+                            } else if (completion_tokens + tokens.len()) < sd_init.max_num_tokens {
+                                log::debug!("{} - target req {} is marked as done but don't have full amount of tokens yet {}/{}", client_req_id, req_id, completion_tokens +  tokens.len(), sd_init.max_num_tokens);
                                 r.response.is_req_final = false;
                                 r.response.finish_reason = None;
                                 true
                             } else {
-                                log::debug!("{} - done gathering target req {}", client_req_id, target_req_id);
-                                result.response.finish_reason = Some(trtllm_rs::FinishReason::Length);
+                                log::debug!("{} - done gathering target req {}", client_req_id, req_id);
+                                r.response.finish_reason = Some(trtllm_rs::FinishReason::Length);
                                 r.response.is_req_final = true;
                                 false
                             };
@@ -603,17 +610,18 @@ impl AsyncExecutor {
                                 let _ = exec.cancel_request(req_id);
                             } else if is_req_final { // is_req_final just tracks is final request for this chunk
                                 // no more data coming from here
-                                exec.acc_rate_tracker.add(client_req_id, init.draft_params.unwrap().draft_tokens.clone(), r.response.tokens.clone());
-                                let _ = exec.cancel_request(req_id);
+                                acc_rate_tracker.add(client_req_id, sd_init.req_init.draft_params.as_ref().unwrap().draft_tokens.clone(), tokens.clone());
 
                                 // if stop conditions not met, requeue to draft to make more chunks
                                 if request_not_done {
-                                    req_init.draft_params = None; // reset for next call
-                                    req_init.params.max_new_tokens = exec.n_draft_tokens() as u32;  // TODO set min?
-                                    req_init.params.min_tokens = exec.n_draft_tokens() as u32;  // TODO set min?
-                                    req_init.params.streaming = false; // Set to false for draft so that we can grab logits in one go.
-                                    let draft_req_init = exec.draft_executor.as_mut().unwrap().enqueue_request(&init, None).unwrap();
-                                    exec.draft_req_to_client.insert(draft_req_init, init.client_req_id);
+                                    exec.enqueue_draft_request(sd_init);
+                                    // we are only done with this chunk, only remove chunk info
+                                    log::debug!("removing {}", req_id);
+                                    let _ = exec.req_to_client.remove(&req_id);
+                                    exec.executor.cancel_request(req_id);
+                                } else {
+                                    // we are completely done
+                                    let _ = exec.cancel_request(req_id);
                                 }
                             }
                         } else {
@@ -623,7 +631,7 @@ impl AsyncExecutor {
                         }
                     }
                 }
-            }
+            }}
         );
 
         Ok((res, tok_env, chat_builder))
@@ -631,6 +639,27 @@ impl AsyncExecutor {
 
     pub fn can_enqueue_request(&self) -> bool {
         self.executor.can_enqueue_request() && self.draft_executor.as_ref().map_or(true, |ex| ex.can_enqueue_request())
+    }
+
+    fn enqueue_draft_request(&mut self, mut sd_init: SpecDecReqInit) {
+        sd_init.req_init.draft_params = None; // reset for next call
+        sd_init.req_init.params.max_new_tokens = self.n_draft_tokens() as u32;  // TODO set min?
+        sd_init.req_init.params.min_tokens = self.n_draft_tokens();  // TODO set min?
+        sd_init.req_init.params.streaming = false; // Set to false for draft so that we can grab logits in one go.
+        let client_req_id = sd_init.req_init.client_req_id.clone();
+        let draft_req_init = self.draft_executor.as_mut().unwrap().enqueue_request(&sd_init.req_init.clone(), None).unwrap();
+        self.draft_req_to_client.insert(draft_req_init, client_req_id);
+        self.client_to_init.insert(client_req_id, sd_init);
+    }
+
+    fn enqueue_request(&mut self, mut sd_init: SpecDecReqInit) {
+        sd_init.req_init.params.max_new_tokens = self.n_draft_tokens() + 1;
+        sd_init.req_init.params.min_tokens = 1;
+        sd_init.req_init.params.streaming = false;
+        let client_req_id = sd_init.req_init.client_req_id.clone();
+        let target_req_id = self.executor.enqueue_request(&sd_init.req_init.clone(), None).unwrap();
+        self.req_to_client.insert(target_req_id, client_req_id);
+        self.client_to_init.insert(client_req_id, sd_init);
     }
 
     pub fn add_full_request(
@@ -675,20 +704,41 @@ impl AsyncExecutor {
         //let pp = prompt_params.as_ref().map(|p| &p.tlc_prompt_params.clone());
 
         // TODO undo this
-        let req_id = if !use_draft_model && self.has_draft_model() {
+        let req_id = if self.has_draft_model() {
             // TODO switch this to use uuid (nums only) or retry check
             let mut rng = rand::rng();
             let mut temp_req_id = ReqId::new(rng.random_range(0..u64::MAX));
             log::debug!("{} - about to starting processing {}", client_req_id, temp_req_id);
 
             // enqueue draft request to start
-            init.params.max_new_tokens = n_draft_tokens as u32;
-            init.params.min_tokens = n_draft_tokens as u32;
-            init.params.streaming = false; // Set to false for draft so that we can grab logits in one go.
-            init.draft_params = None;
-            self.client_to_init.insert(client_req_id, init.clone());
-            let draft_req_id = self.draft_executor.as_mut().unwrap().enqueue_request(&init, None).unwrap();
+            let max_new_tokens = init.params.max_new_tokens;
+            let mut req_init = init.clone();
+            req_init.params.max_new_tokens = self.n_draft_tokens() as u32;
+            req_init.params.min_tokens = self.n_draft_tokens() as u32;
+            req_init.params.streaming = false; // Set to false for draft so that we can grab logits in one go.
+            req_init.draft_params = None;
+            self.client_to_init.insert(client_req_id, SpecDecReqInit {
+                                                        req_init: req_init.clone(),
+                                                        max_num_tokens: max_new_tokens as usize,
+                                                        start_prompt_len: init.tokens.len(),
+                                                    });
+            let draft_req_id = self.draft_executor.as_mut().unwrap().enqueue_request(&req_init.clone(), None).unwrap();
             self.draft_req_to_client.insert(draft_req_id, client_req_id);
+            self.req_data.insert(
+                client_req_id,
+                ReqData {
+                    req_id: temp_req_id,
+                    client_req_id,
+                    tx: main_tx,
+                    llgs: llgs.into_iter().map(Some).collect(),
+                    llg_infos: vec![],
+                    prompt_len,
+                    min_p: init.params.min_p,
+                    logs: String::new(),
+                    is_run,
+                    _prompt_params: None // prompt_params,
+                },
+            );
 
 
             // tokio::spawn(async move {
